@@ -1,8 +1,8 @@
-import { Box, Card, CardContent, CircularProgress, Skeleton, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from "@mui/material";
+import { Box, Card, CardContent, CircularProgress, Divider, Skeleton, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from "@mui/material";
 import { PriceCardContent } from "./home";
-import { use, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { ref, get, child } from "firebase/database";
+import { ref, onValue, off } from "firebase/database";
 import { db } from "../main";
 import GaugeComponent from "react-gauge-component";
 
@@ -20,27 +20,34 @@ export default function MonitoringUI() {
         if (isDbFetched.current) return;
         isDbFetched.current = true;
 
-        function fetchMonitoringData() {
-            const dbRef = ref(db);
-            get(child(dbRef, 'monitoring')).then((snapshot) => {
-                if (snapshot.exists()) {
-                    const dbMonitoring = snapshot.val();
+        const monitoringDataRef = ref(db, 'monitoring/');
+        const monitoringDataListener = onValue(monitoringDataRef, (snapshot) => {
+            const dbMonitoring = snapshot.val();
 
-                    setBatteryStatus(dbMonitoring.batteryStatus);
-                    setConnectedUsers(dbMonitoring.connectedUsers);
-                }
-            })
-        }
+            setBatteryStatus(dbMonitoring.batteryStatus);
+            setConnectedUsers(dbMonitoring.connectedUsers);
+        })
 
-        setInterval(fetchMonitoringData, 1000 * 10);
-
-        fetchMonitoringData(); //First data fetching
 
         //TODO
         setDeviceStatus(1)
         setTimeout(() => {
-            setDeviceStatus(2)
+            setDeviceStatus(Math.random() < 0.5 ? 0 : 2)
         }, 5000)
+
+
+        const tryConnect = setInterval(() => {
+            // PING FAST API CODE
+            // ASK GPT TO DO CODE & CHANGE STATUS WHEN DEVICE IS DISCONNECTED
+            // IF POSSIBLE WITHOUT INTERVAL TO CHECK CONNECTED EVERY X SECONDS
+            // SO THIS CODE ONLY RUN WHEN THE DEVICE IS DISCONNECTED
+            // INSTEAD OF EVERYTIME
+
+            clearInterval(tryConnect);
+        }, 5000);
+
+
+        return () => off(monitoringDataRef, "value", monitoringDataListener);
     }, [])
 
 
@@ -72,6 +79,26 @@ export default function MonitoringUI() {
                                 </>
                             )}
                     </Stack>
+                    {
+                        deviceStatus == 0 && (
+                            <Typography textAlign="center">
+                                Tidak dapat terhubung ke perangkat. Data mungkin tidak ter-update.
+                            </Typography>
+                        )
+                    }
+                    <Divider />
+                    {
+                        batteryStatus?.battery <= 20 && (
+                            <Typography color="red" textAlign="center">
+                                Baterai tersisa {batteryStatus.battery}%. Segera sambungkan catu daya sebelum perangkat mati!
+                            </Typography>
+                        )}
+                    {
+                        batteryStatus?.power <= 10 && (
+                            <Typography color="red" textAlign="center">
+                                Daya yang dihasilkan panel surya rendah. Perangkat mungkin akan menggunakan daya baterai
+                            </Typography>
+                        )}
                 </Stack>
             </Card>
             <Card variant="outlined">
@@ -193,7 +220,7 @@ export default function MonitoringUI() {
                                     }
                                 }}
                             />
-                            <Typography textAlign="center" variant="h6" fontWeight={600}>{(batteryStatus != null) ? batteryStatus.power : 0} Watt</Typography>
+                            <Typography textAlign="center" variant="h6" fontWeight={600} color={batteryStatus?.power < 12 && "red"}>{(batteryStatus != null) ? batteryStatus.power : 0} Watt</Typography>
                         </Stack>
                     </Card>
                     <Card variant="outlined">
@@ -269,7 +296,7 @@ export default function MonitoringUI() {
                                     }
                                 }}
                             />
-                            <Typography textAlign="center" variant="h6" fontWeight={600}>{(batteryStatus != null) ? batteryStatus.battery : 0}%</Typography>
+                            <Typography textAlign="center" variant="h6" fontWeight={600} color={batteryStatus?.battery <= 20 && "red"}>{(batteryStatus != null) ? batteryStatus.battery : 0}%</Typography>
                         </Stack>
                     </Card>
                 </Stack>

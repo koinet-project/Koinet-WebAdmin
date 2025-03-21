@@ -20,9 +20,7 @@ export const app = initializeApp(firebaseConfig);
 export const db = getDatabase(app);
 
 createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
-  </StrictMode>,
+  <BrowserRouter>
+    <App />
+  </BrowserRouter>,
 )
