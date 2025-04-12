@@ -5,50 +5,118 @@ import { useNavigate } from "react-router";
 import { ref, onValue, off } from "firebase/database";
 import { db } from "../main";
 import GaugeComponent from "react-gauge-component";
+import { apiKey } from "../assets/secrets";
 
 export default function MonitoringUI() {
     const [batteryStatus, setBatteryStatus] = useState();
     const [connectedUsers, setConnectedUsers] = useState();
-    // ping raspberryPi to check its status
+    // ping fastAPI
     // 0 is disconnected, 1 is trying to connect, 2 is connected
     const [deviceStatus, setDeviceStatus] = useState(0);
 
     const navigate = useNavigate();
-    const isDbFetched = useRef(false);
+    const isLoaded = useRef(false);
+
+    const webSocketRef = useRef(null)
+    const reconnectTimeout = useRef(null);
+    const pingTimeout = useRef(null);
+    const connectTimeout = useRef(null);  // New timeout for connection attempt
+    const pingTimeoutDuration = 30 * 1000;
+    const connectTimeoutDuration = 10 * 1000;  // 10 seconds to consider connection failed
+    const webSocketUrl = "https://consistently-staff-adapted-parenting.trycloudflare.com/";
 
     useEffect(() => {
-        if (isDbFetched.current) return;
-        isDbFetched.current = true;
+        if (isLoaded.current) return;
+        isLoaded.current = true;
 
-        const monitoringDataRef = ref(db, 'monitoring/');
+        const monitoringDataRef = ref(db, "monitoring/");
         const monitoringDataListener = onValue(monitoringDataRef, (snapshot) => {
             const dbMonitoring = snapshot.val();
-
             setBatteryStatus(dbMonitoring.batteryStatus);
             setConnectedUsers(dbMonitoring.connectedUsers);
-        })
+        });
 
+        const resetPingTimeout = () => {
+            clearTimeout(pingTimeout.current);
+            pingTimeout.current = setTimeout(() => {
+                console.log("Ping timeout - closing WebSocket");
+                webSocketRef.current?.close();
+            }, pingTimeoutDuration);
+        };
 
-        //TODO
-        setDeviceStatus(1)
-        setTimeout(() => {
-            setDeviceStatus(Math.random() < 0.5 ? 0 : 2)
-        }, 5000)
+        const connectWebSocket = () => {
+            if (webSocketRef.current) {
+                console.log("Clearing existing WebSocket before reconnecting");
+                webSocketRef.current.close();
+            }
 
+            setDeviceStatus(1); // Set to "connecting" state
+            webSocketRef.current = new WebSocket(webSocketUrl + `ping?api_key=${apiKey}`);
 
-        const tryConnect = setInterval(() => {
-            // PING FAST API CODE
-            // ASK GPT TO DO CODE & CHANGE STATUS WHEN DEVICE IS DISCONNECTED
-            // IF POSSIBLE WITHOUT INTERVAL TO CHECK CONNECTED EVERY X SECONDS
-            // SO THIS CODE ONLY RUN WHEN THE DEVICE IS DISCONNECTED
-            // INSTEAD OF EVERYTIME
+            // Set a timeout to detect failed connection attempts
+            connectTimeout.current = setTimeout(() => {
+                console.log("WebSocket connection timeout");
+                if (webSocketRef.current && webSocketRef.current.readyState === WebSocket.CONNECTING) {
+                    webSocketRef.current.close();
+                }
+            }, connectTimeoutDuration);
 
-            clearInterval(tryConnect);
-        }, 5000);
+            webSocketRef.current.onopen = () => {
+                console.log("WebSocket connected");
+                setDeviceStatus(2); // Connected
+                clearTimeout(connectTimeout.current); // Clear connection timeout
+                resetPingTimeout();
+            };
 
+            webSocketRef.current.onmessage = (event) => {
+                if (event.data === "!!!") {
+                    console.log("Ping received");
+                    setDeviceStatus(2);
+                    resetPingTimeout();
+                }
+            };
 
-        return () => off(monitoringDataRef, "value", monitoringDataListener);
-    }, [])
+            webSocketRef.current.onclose = () => {
+                console.log("WebSocket disconnected");
+                setDeviceStatus(0); // Disconnected
+                clearTimeout(pingTimeout.current);
+                clearTimeout(connectTimeout.current);
+
+                if (!reconnectTimeout.current) {
+                    reconnectTimeout.current = setTimeout(() => {
+                        reconnectTimeout.current = null;
+                        connectWebSocket();
+                    }, 20000);
+                }
+            };
+
+            webSocketRef.current.onerror = (error) => {
+                console.error("WebSocket error:", error);
+                setDeviceStatus(0); // Disconnected
+                clearTimeout(pingTimeout.current);
+                clearTimeout(connectTimeout.current);
+
+                if (!reconnectTimeout.current) {
+                    reconnectTimeout.current = setTimeout(() => {
+                        reconnectTimeout.current = null;
+                        connectWebSocket();
+                    }, 20000);
+                }
+            };
+        };
+
+        connectWebSocket();
+
+        return () => {
+            off(monitoringDataRef, "value", monitoringDataListener);
+            if (webSocketRef.current) {
+                webSocketRef.current.close();
+            }
+            clearTimeout(pingTimeout.current);
+            clearTimeout(connectTimeout.current);
+            clearTimeout(reconnectTimeout.current);
+        };
+    }, []);
 
 
     return (
