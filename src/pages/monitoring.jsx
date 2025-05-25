@@ -8,11 +8,10 @@ import GaugeComponent from "react-gauge-component";
 import { apiKey } from "../assets/secrets";
 
 export default function MonitoringUI() {
-    const [batteryStatus, setBatteryStatus] = useState();
+    const [currentVoltage, setCurrentVoltage] = useState();
+    const [currentAmpere, setCurrentAmpere] = useState();
+    const [totalPower, setTotalPower] = useState();
     const [connectedUsers, setConnectedUsers] = useState();
-    // ping fastAPI
-    // 0 is disconnected, 1 is trying to connect, 2 is connected
-    const [deviceStatus, setDeviceStatus] = useState(0);
 
     const navigate = useNavigate();
     const isLoaded = useRef(false);
@@ -31,144 +30,86 @@ export default function MonitoringUI() {
 
         const monitoringDataRef = ref(db, "monitoring/");
         const monitoringDataListener = onValue(monitoringDataRef, (snapshot) => {
-            const dbMonitoring = snapshot.val();
-            setBatteryStatus(dbMonitoring.batteryStatus);
-            setConnectedUsers(dbMonitoring.connectedUsers);
-        });
+        const dbMonitoring = snapshot.val();
 
-        const resetPingTimeout = () => {
-            clearTimeout(pingTimeout.current);
-            pingTimeout.current = setTimeout(() => {
-                console.log("Ping timeout - closing WebSocket");
-                webSocketRef.current?.close();
-            }, pingTimeoutDuration);
-        };
+        // Safely access pltsStatus
+        const pltsStatus = dbMonitoring?.pltsStatus;
 
-        const connectWebSocket = () => {
-            if (webSocketRef.current) {
-                console.log("Clearing existing WebSocket before reconnecting");
-                webSocketRef.current.close();
+        if (pltsStatus) {
+            setCurrentAmpere(pltsStatus.currentAmpere);
+            setCurrentVoltage(pltsStatus.currentVoltage);
+
+
+            // --- Calculate Total Power (Sum of Hourly Power Output) ---
+            let totalDailyPower = 0;
+            const hourlyPowerOutput = pltsStatus.hourlyPowerOutput;
+
+            if (hourlyPowerOutput) {
+                // Iterate over the values of the hourlyPowerOutput object
+                // Object.values() returns an array of the object's values
+                // .forEach() or .reduce() can be used to sum them
+                Object.values(hourlyPowerOutput).forEach(powerValue => {
+                    // Ensure the value is a number before adding, or default to 0
+                    totalDailyPower += typeof powerValue === 'number' ? powerValue : 0;
+                });
             }
+            setTotalPower(totalDailyPower);
+            console.log("Total Daily Power (sum of hourly):", totalDailyPower); // For debugging
 
-            setDeviceStatus(1); // Set to "connecting" state
-            webSocketRef.current = new WebSocket(webSocketUrl + `ping?api_key=${apiKey}`);
+        } else {
+            console.warn("pltsStatus not found in monitoring data.");
+            setCurrentVoltage(0);
+            setCurrentAmpere(0);
+            setTotalPower(0);
+        }
 
-            // Set a timeout to detect failed connection attempts
-            connectTimeout.current = setTimeout(() => {
-                console.log("WebSocket connection timeout");
-                if (webSocketRef.current && webSocketRef.current.readyState === WebSocket.CONNECTING) {
-                    webSocketRef.current.close();
-                }
-            }, connectTimeoutDuration);
 
-            webSocketRef.current.onopen = () => {
-                console.log("WebSocket connected");
-                setDeviceStatus(2); // Connected
-                clearTimeout(connectTimeout.current); // Clear connection timeout
-                resetPingTimeout();
-            };
-
-            webSocketRef.current.onmessage = (event) => {
-                if (event.data === "!!!") {
-                    console.log("Ping received");
-                    setDeviceStatus(2);
-                    resetPingTimeout();
-                }
-            };
-
-            webSocketRef.current.onclose = () => {
-                console.log("WebSocket disconnected");
-                setDeviceStatus(0); // Disconnected
-                clearTimeout(pingTimeout.current);
-                clearTimeout(connectTimeout.current);
-
-                if (!reconnectTimeout.current) {
-                    reconnectTimeout.current = setTimeout(() => {
-                        reconnectTimeout.current = null;
-                        connectWebSocket();
-                    }, 20000);
-                }
-            };
-
-            webSocketRef.current.onerror = (error) => {
-                console.error("WebSocket error:", error);
-                setDeviceStatus(0); // Disconnected
-                clearTimeout(pingTimeout.current);
-                clearTimeout(connectTimeout.current);
-
-                if (!reconnectTimeout.current) {
-                    reconnectTimeout.current = setTimeout(() => {
-                        reconnectTimeout.current = null;
-                        connectWebSocket();
-                    }, 20000);
-                }
-            };
-        };
-
-        connectWebSocket();
+        // --- Set Connected Users ---
+        // Safely access connectedUsers
+        const connectedUsers = dbMonitoring?.connectedUsers;
+        setConnectedUsers(connectedUsers || {}); // Default to empty object if null/undefined
+        // console.log("Connected Users:", connectedUsers); // For debugging
+    });
 
         return () => {
             off(monitoringDataRef, "value", monitoringDataListener);
-            if (webSocketRef.current) {
-                webSocketRef.current.close();
-            }
-            clearTimeout(pingTimeout.current);
-            clearTimeout(connectTimeout.current);
-            clearTimeout(reconnectTimeout.current);
         };
     }, []);
 
+    function formatSecondsToHMS(totalSeconds) {
+        if (typeof totalSeconds !== 'number' || totalSeconds < 0) {
+            // Basic validation for non-negative numbers
+            console.error("Input must be a non-negative number of seconds.");
+            return null; 
+        }
+
+        totalSeconds = Math.floor(totalSeconds); // Ensure it's an integer
+
+        if (totalSeconds === 0) {
+            return "0s";
+        }
+
+        const hours = Math.floor(totalSeconds / 3600);
+        totalSeconds %= 3600; // Remaining seconds after extracting hours
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+
+        const hmsParts = [];
+        if (hours > 0) {
+            hmsParts.push(`${hours}h`);
+        }
+        if (minutes > 0) {
+            hmsParts.push(`${minutes}m`);
+        }
+        if (seconds > 0) {
+            hmsParts.push(`${seconds}s`);
+        }
+
+        return hmsParts.join(' '); // Join parts with a space
+    }
 
     return (
         <Stack spacing={2} paddingTop={10}>
-            <Card variant="outlined">
-                <Stack spacing={2} padding={2}>
-                    <Typography variant="h6" fontWeight={600} textAlign="center">
-                        Status Perangkat
-                    </Typography>
-                    <Stack direction="row" justifyContent="center" spacing={2}>
-                        {{
-                            2: (
-                                <>
-                                    <span className="material-symbols-outlined">wifi</span>
-                                    <Typography>Perangkat Wi-Fi Koin terhubung</Typography>
-                                </>
-                            ),
-                            0: (
-                                <>
-                                    <span className="material-symbols-outlined">wifi_off</span>
-                                    <Typography>Tidak dapat menjangkau perangkat</Typography>
-                                </>
-                            )
-                        }[deviceStatus] || (
-                                <>
-                                    <span className="material-symbols-outlined">wifi_protected_setup</span>
-                                    <Typography>Mencoba menghubungi perangkat</Typography>
-                                </>
-                            )}
-                    </Stack>
-                    {
-                        deviceStatus == 0 && (
-                            <Typography textAlign="center">
-                                Tidak dapat terhubung ke perangkat. Data mungkin tidak ter-update.
-                            </Typography>
-                        )
-                    }
-                    <Divider />
-                    {
-                        batteryStatus?.battery <= 20 && (
-                            <Typography color="red" textAlign="center">
-                                Baterai tersisa {batteryStatus.battery}%. Segera sambungkan catu daya sebelum perangkat mati!
-                            </Typography>
-                        )}
-                    {
-                        batteryStatus?.power <= 10 && (
-                            <Typography color="red" textAlign="center">
-                                Daya yang dihasilkan panel surya rendah. Perangkat mungkin akan menggunakan daya baterai
-                            </Typography>
-                        )}
-                </Stack>
-            </Card>
             <Card variant="outlined">
                 <PriceCardContent />
             </Card>
@@ -204,21 +145,12 @@ export default function MonitoringUI() {
                                         <TableRow>
                                             <TableCell align="center" sx={{ fontWeight: 'bold' }}>IP Address</TableCell>
                                             <TableCell align="center" sx={{ fontWeight: 'bold' }}>MAC Address</TableCell>
-                                            <TableCell align="center" sx={{ fontWeight: 'bold' }}>Waktu</TableCell>
+                                            <TableCell align="center" sx={{ fontWeight: 'bold' }}>Kuota</TableCell>
+                                            <TableCell align="center" sx={{ fontWeight: 'bold '}}>Sisa Kuota</TableCell>
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
                                         {Object.entries(connectedUsers).map(([key, value]) => {
-                                            const userLeaseStart = new Date(value.userLeaseStart)
-                                            const userLeaseEnd = new Date(value.userLeaseEnd)
-
-                                            function getTime(date) {
-                                                const hour = date.getHours();
-                                                const minute = date.getMinutes();
-
-                                                return `${hour.toString().padStart(2, "0")}.${minute.toString().padStart(2, "0")}`
-                                            }
-
                                             return (
                                                 <TableRow
                                                     key={key}
@@ -231,7 +163,10 @@ export default function MonitoringUI() {
                                                         {value.userMAC}
                                                     </TableCell>
                                                     <TableCell align="center">
-                                                        {getTime(userLeaseStart)} - {getTime(userLeaseEnd)}
+                                                        {formatSecondsToHMS(value.uptimeLimit)}
+                                                    </TableCell>
+                                                    <TableCell align="center">
+                                                        {formatSecondsToHMS(value.uptime)}
                                                     </TableCell>
                                                 </TableRow>
                                             )
@@ -254,6 +189,84 @@ export default function MonitoringUI() {
                 >
                     <Card variant="outlined">
                         <Stack padding={2}>
+                            <Typography variant="body1" textAlign="center">Tegangan</Typography>
+                            <GaugeComponent
+                                type="semicircle"
+                                arc={{
+                                    gradient: true,
+                                    width: 0.25,
+                                    cornerRadius: 16,
+                                    subArcs: [
+                                        {
+                                            limit: 20,
+                                            color: "RGB(20, 40, 100)"
+                                        },
+                                        {
+                                            limit: 50,
+                                            color: "RGB(100, 140, 200)"
+                                        },
+                                        {
+                                            color: "RGB(120, 180, 220)"
+                                        }
+                                    ]
+                                }}
+                                pointer={{ type: "needle" }}
+                                minValue={0}
+                                maxValue={60}
+                                value={(currentVoltage != null) ? currentVoltage : 0}
+                                labels={{
+                                    valueLabel: {
+                                        formatTextValue: () => ``,
+                                    },
+                                    tickLabels: {
+                                        hideMinMax: true
+                                    }
+                                }}
+                            />
+                            <Typography textAlign="center" variant="h6" fontWeight={600}>{(currentVoltage != null) ? currentVoltage : 0} V</Typography>
+                        </Stack>
+                    </Card>
+                    <Card variant="outlined">
+                        <Stack padding={2}>
+                            <Typography variant="body1" textAlign="center">Arus</Typography>
+                            <GaugeComponent
+                                type="semicircle"
+                                arc={{
+                                    gradient: true,
+                                    width: 0.25,
+                                    cornerRadius: 16,
+                                    subArcs: [
+                                        {
+                                            limit: 20,
+                                            color: "RGB(20, 40, 100)"
+                                        },
+                                        {
+                                            limit: 50,
+                                            color: "RGB(100, 140, 200)"
+                                        },
+                                        {
+                                            color: "RGB(120, 180, 220)"
+                                        }
+                                    ]
+                                }}
+                                pointer={{ type: "needle" }}
+                                minValue={0}
+                                maxValue={60}
+                                value={(currentAmpere != null) ? currentAmpere : 0}
+                                labels={{
+                                    valueLabel: {
+                                        formatTextValue: () => ``,
+                                    },
+                                    tickLabels: {
+                                        hideMinMax: true
+                                    }
+                                }}
+                            />
+                            <Typography textAlign="center" variant="h6" fontWeight={600}>{(currentAmpere != null) ? currentAmpere : 0} A</Typography>
+                        </Stack>
+                    </Card>
+                    <Card variant="outlined">
+                        <Stack padding={2}>
                             <Typography variant="body1" textAlign="center">Daya saat ini</Typography>
                             <GaugeComponent
                                 type="semicircle"
@@ -263,11 +276,11 @@ export default function MonitoringUI() {
                                     cornerRadius: 16,
                                     subArcs: [
                                         {
-                                            limit: 50,
+                                            limit: 20,
                                             color: "RGB(20, 40, 100)"
                                         },
                                         {
-                                            limit: 200,
+                                            limit: 50,
                                             color: "RGB(100, 140, 200)"
                                         },
                                         {
@@ -276,9 +289,9 @@ export default function MonitoringUI() {
                                     ]
                                 }}
                                 pointer={{ type: "needle" }}
-                                minValue={-20}
-                                maxValue={300}
-                                value={(batteryStatus != null) ? batteryStatus.power : 0}
+                                minValue={0}
+                                maxValue={60}
+                                value={(currentVoltage != null || currentAmpere != null) ? currentAmpere * currentVoltage : 0}
                                 labels={{
                                     valueLabel: {
                                         formatTextValue: () => ``,
@@ -288,12 +301,12 @@ export default function MonitoringUI() {
                                     }
                                 }}
                             />
-                            <Typography textAlign="center" variant="h6" fontWeight={600} color={batteryStatus?.power < 12 && "red"}>{(batteryStatus != null) ? batteryStatus.power : 0} Watt</Typography>
+                            <Typography textAlign="center" variant="h6" fontWeight={600} color={currentAmpere * currentVoltage < 12 && "red"}>{(currentVoltage != null || currentAmpere != null) ? currentAmpere * currentVoltage : 0} Watt</Typography>
                         </Stack>
                     </Card>
                     <Card variant="outlined">
                         <Stack padding={2}>
-                            <Typography variant="body1" textAlign="center">Total energi hari ini</Typography>
+                            <Typography variant="body1" textAlign="center">Total daya masuk hari ini</Typography>
                             <GaugeComponent
                                 type="semicircle"
                                 arc={{
@@ -306,7 +319,7 @@ export default function MonitoringUI() {
                                             color: "RGB(20, 40, 100)"
                                         },
                                         {
-                                            limit: 200,
+                                            limit: 150,
                                             color: "RGB(100, 140, 200)"
                                         },
                                         {
@@ -315,9 +328,9 @@ export default function MonitoringUI() {
                                     ]
                                 }}
                                 pointer={{ type: "needle" }}
-                                minValue={-20}
-                                maxValue={300}
-                                value={(batteryStatus != null) ? batteryStatus.powerTotal : 0}
+                                minValue={0}
+                                maxValue={200}
+                                value={(totalPower != null) ? totalPower : 0}
                                 labels={{
                                     valueLabel: {
                                         formatTextValue: () => ``,
@@ -327,44 +340,7 @@ export default function MonitoringUI() {
                                     }
                                 }}
                             />
-                            <Typography textAlign="center" variant="h6" fontWeight={600}>{(batteryStatus != null) ? batteryStatus.powerTotal : 0} KWh</Typography>
-                        </Stack>
-                    </Card>
-                    <Card>
-                        <Stack padding={2}>
-                            <Typography variant="body1" textAlign="center">Status baterai</Typography>
-                            <GaugeComponent
-                                type="semicircle"
-                                arc={{
-                                    gradient: true,
-                                    width: 0.2,
-                                    cornerRadius: 16,
-                                    subArcs: [
-                                        {
-                                            color: "red"
-                                        },
-                                        {
-                                            color: "yellow"
-                                        },
-                                        {
-                                            color: "lightgreen"
-                                        }
-                                    ]
-                                }}
-                                pointer={{ type: "needle" }}
-                                minValue={-5}
-                                maxValue={100}
-                                value={(batteryStatus != null) ? batteryStatus.battery : 0}
-                                labels={{
-                                    valueLabel: {
-                                        formatTextValue: () => ``,
-                                    },
-                                    tickLabels: {
-                                        hideMinMax: true
-                                    }
-                                }}
-                            />
-                            <Typography textAlign="center" variant="h6" fontWeight={600} color={batteryStatus?.battery <= 20 && "red"}>{(batteryStatus != null) ? batteryStatus.battery : 0}%</Typography>
+                            <Typography textAlign="center" variant="h6" fontWeight={600}>{(totalPower != null) ? totalPower : 0} Wh</Typography>
                         </Stack>
                     </Card>
                 </Stack>
