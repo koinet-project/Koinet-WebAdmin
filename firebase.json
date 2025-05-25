@@ -12,8 +12,5 @@
         "destination": "/index.html"
       }
     ]
-    "github": {
-        "repo": "koinet-project/Koinet-WebAdmin",
-	"branch": "main"
   }
 }
