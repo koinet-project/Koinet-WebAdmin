@@ -6,73 +6,68 @@ import { ref, onValue, off } from "firebase/database";
 import { db } from "../main";
 import GaugeComponent from "react-gauge-component";
 import { apiKey } from "../assets/secrets";
+import CoinGauge from "../components/coin_today";
 
 export default function MonitoringUI() {
     const [currentVoltage, setCurrentVoltage] = useState();
     const [currentAmpere, setCurrentAmpere] = useState();
     const [totalPower, setTotalPower] = useState();
     const [connectedUsers, setConnectedUsers] = useState();
+    const [yesterdayCoin, setYesterdayCoin] = useState();
 
     const navigate = useNavigate();
     const isLoaded = useRef(false);
-
-    const webSocketRef = useRef(null)
-    const reconnectTimeout = useRef(null);
-    const pingTimeout = useRef(null);
-    const connectTimeout = useRef(null);  // New timeout for connection attempt
-    const pingTimeoutDuration = 30 * 1000;
-    const connectTimeoutDuration = 10 * 1000;  // 10 seconds to consider connection failed
-    const webSocketUrl = "https://consistently-staff-adapted-parenting.trycloudflare.com/";
-
+    
     useEffect(() => {
         if (isLoaded.current) return;
         isLoaded.current = true;
 
         const monitoringDataRef = ref(db, "monitoring/");
-        const monitoringDataListener = onValue(monitoringDataRef, (snapshot) => {
-        const dbMonitoring = snapshot.val();
+        const pltsStatusListener = onValue(monitoringDataRef, (snapshot) => {
+            const dbMonitoring = snapshot.val();
 
-        // Safely access pltsStatus
-        const pltsStatus = dbMonitoring?.pltsStatus;
+            // Safely access pltsStatus
+            const pltsStatus = dbMonitoring?.pltsStatus;
 
-        if (pltsStatus) {
-            setCurrentAmpere(pltsStatus.currentAmpere);
-            setCurrentVoltage(pltsStatus.currentVoltage);
+            if (pltsStatus) {
+                setCurrentAmpere(pltsStatus.currentAmpere);
+                setCurrentVoltage(pltsStatus.currentVoltage);
 
+                // --- Calculate Total Power (Sum of Hourly Power Output) ---
+                let totalDailyPower = 0;
+                const hourlyPowerOutput = pltsStatus.hourlyPowerOutput;
 
-            // --- Calculate Total Power (Sum of Hourly Power Output) ---
-            let totalDailyPower = 0;
-            const hourlyPowerOutput = pltsStatus.hourlyPowerOutput;
+                if (hourlyPowerOutput) {
+                    // Iterate over the values of the hourlyPowerOutput object
+                    // Object.values() returns an array of the object's values
+                    // .forEach() or .reduce() can be used to sum them
+                    Object.values(hourlyPowerOutput).forEach(powerValue => {
+                        // Ensure the value is a number before adding, or default to 0
+                        totalDailyPower += typeof powerValue === 'number' ? powerValue : 0;
+                    });
+                }
+                setTotalPower(totalDailyPower);
 
-            if (hourlyPowerOutput) {
-                // Iterate over the values of the hourlyPowerOutput object
-                // Object.values() returns an array of the object's values
-                // .forEach() or .reduce() can be used to sum them
-                Object.values(hourlyPowerOutput).forEach(powerValue => {
-                    // Ensure the value is a number before adding, or default to 0
-                    totalDailyPower += typeof powerValue === 'number' ? powerValue : 0;
-                });
+            } else {
+                console.warn("pltsStatus not found in monitoring data.");
+                setCurrentVoltage(0);
+                setCurrentAmpere(0);
+                setTotalPower(0);
             }
-            setTotalPower(totalDailyPower);
-            console.log("Total Daily Power (sum of hourly):", totalDailyPower); // For debugging
+        });
 
-        } else {
-            console.warn("pltsStatus not found in monitoring data.");
-            setCurrentVoltage(0);
-            setCurrentAmpere(0);
-            setTotalPower(0);
-        }
-
-
-        // --- Set Connected Users ---
-        // Safely access connectedUsers
-        const connectedUsers = dbMonitoring?.connectedUsers;
-        setConnectedUsers(connectedUsers || {}); // Default to empty object if null/undefined
-        // console.log("Connected Users:", connectedUsers); // For debugging
-    });
+        const connectedUsersListener = onValue(monitoringDataRef, (snapshot) => {
+            const dbMonitoring = snapshot.val();
+            
+            // --- Set Connected Users ---
+            // Safely access connectedUsers
+            const connectedUsers = dbMonitoring?.connectedUsers;
+            setConnectedUsers(connectedUsers || {}); // Default to empty object if null/undefined
+        });
 
         return () => {
-            off(monitoringDataRef, "value", monitoringDataListener);
+            off(monitoringDataRef, "value", pltsStatusListener);
+            off(monitoringDataRef, "value", connectedUsersListener);
         };
     }, []);
 
@@ -179,6 +174,18 @@ export default function MonitoringUI() {
                 </Stack>
             </Card>
             <Stack spacing={4}>
+                <Typography variant="h6" fontWeight={600} textAlign="center" paddingTop={2}>Pemasukan</Typography>
+                <Stack
+                    direction="row"
+                    useFlexGap
+                    sx={{ flexWrap: 'wrap' }}
+                    justifyContent="center"
+                    spacing={2}
+                >
+                    <CoinGauge/>
+                </Stack>
+            </Stack>
+            <Stack spacing={4}>
                 <Typography variant="h6" fontWeight={600} textAlign="center" paddingTop={2}>Informasi Panel Surya</Typography>
                 <Stack
                     direction="row"
@@ -223,7 +230,7 @@ export default function MonitoringUI() {
                                     }
                                 }}
                             />
-                            <Typography textAlign="center" variant="h6" fontWeight={600}>{(currentVoltage != null) ? currentVoltage : 0} V</Typography>
+                            <Typography textAlign="center" variant="h6" fontWeight={600}>{(currentVoltage != null) ? currentVoltage.toFixed(2) : 0} V</Typography>
                         </Stack>
                     </Card>
                     <Card variant="outlined">
@@ -262,7 +269,7 @@ export default function MonitoringUI() {
                                     }
                                 }}
                             />
-                            <Typography textAlign="center" variant="h6" fontWeight={600}>{(currentAmpere != null) ? currentAmpere : 0} A</Typography>
+                            <Typography textAlign="center" variant="h6" fontWeight={600}>{(currentAmpere != null) ? currentAmpere.toFixed(2) : 0} A</Typography>
                         </Stack>
                     </Card>
                     <Card variant="outlined">
@@ -301,7 +308,7 @@ export default function MonitoringUI() {
                                     }
                                 }}
                             />
-                            <Typography textAlign="center" variant="h6" fontWeight={600} color={currentAmpere * currentVoltage < 12 && "red"}>{(currentVoltage != null || currentAmpere != null) ? currentAmpere * currentVoltage : 0} Watt</Typography>
+                            <Typography textAlign="center" variant="h6" fontWeight={600} color={currentAmpere * currentVoltage < 12 && "red"}>{(currentVoltage != null || currentAmpere != null) ? (currentAmpere * currentVoltage).toFixed(2) : 0} Watt</Typography>
                         </Stack>
                     </Card>
                     <Card variant="outlined">
@@ -340,7 +347,7 @@ export default function MonitoringUI() {
                                     }
                                 }}
                             />
-                            <Typography textAlign="center" variant="h6" fontWeight={600}>{(totalPower != null) ? totalPower : 0} Wh</Typography>
+                            <Typography textAlign="center" variant="h6" fontWeight={600}>{(totalPower != null) ? totalPower.toFixed(2) : 0} Wh</Typography>
                         </Stack>
                     </Card>
                 </Stack>
