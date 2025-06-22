@@ -1,6 +1,6 @@
 export const wifiAbout =
     `
-Perangkat Wi-Fi Koin adalah solusi praktis untuk menyediakan akses
+Koinet adalah Perangkat Wi-Fi Koin yang menjadi solusi praktis untuk menyediakan akses
 internet berbasis koin yang mudah digunakan oleh berbagai kalangan.
 Dirancang untuk lokasi umum dan perangkat ini memungkinkan pengguna
 menikmati layanan internet dengan sistem pembayaran yang sederhana dan

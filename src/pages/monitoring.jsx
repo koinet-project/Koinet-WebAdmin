@@ -25,24 +25,17 @@ export default function MonitoringUI() {
         const monitoringDataRef = ref(db, "monitoring/");
         const pltsStatusListener = onValue(monitoringDataRef, (snapshot) => {
             const dbMonitoring = snapshot.val();
-
-            // Safely access pltsStatus
             const pltsStatus = dbMonitoring?.pltsStatus;
 
             if (pltsStatus) {
                 setCurrentAmpere(pltsStatus.currentAmpere);
                 setCurrentVoltage(pltsStatus.currentVoltage);
 
-                // --- Calculate Total Power (Sum of Hourly Power Output) ---
                 let totalDailyPower = 0;
                 const hourlyPowerOutput = pltsStatus.hourlyPowerOutput;
 
                 if (hourlyPowerOutput) {
-                    // Iterate over the values of the hourlyPowerOutput object
-                    // Object.values() returns an array of the object's values
-                    // .forEach() or .reduce() can be used to sum them
                     Object.values(hourlyPowerOutput).forEach(powerValue => {
-                        // Ensure the value is a number before adding, or default to 0
                         totalDailyPower += typeof powerValue === 'number' ? powerValue : 0;
                     });
                 }
@@ -58,11 +51,8 @@ export default function MonitoringUI() {
 
         const connectedUsersListener = onValue(monitoringDataRef, (snapshot) => {
             const dbMonitoring = snapshot.val();
-            
-            // --- Set Connected Users ---
-            // Safely access connectedUsers
             const connectedUsers = dbMonitoring?.connectedUsers;
-            setConnectedUsers(connectedUsers || {}); // Default to empty object if null/undefined
+            setConnectedUsers(connectedUsers || {});
         });
 
         return () => {
@@ -73,19 +63,18 @@ export default function MonitoringUI() {
 
     function formatSecondsToHMS(totalSeconds) {
         if (typeof totalSeconds !== 'number' || totalSeconds < 0) {
-            // Basic validation for non-negative numbers
             console.error("Input must be a non-negative number of seconds.");
             return null; 
         }
 
-        totalSeconds = Math.floor(totalSeconds); // Ensure it's an integer
+        totalSeconds = Math.floor(totalSeconds);
 
         if (totalSeconds === 0) {
             return "0s";
         }
 
         const hours = Math.floor(totalSeconds / 3600);
-        totalSeconds %= 3600; // Remaining seconds after extracting hours
+        totalSeconds %= 3600;
         const minutes = Math.floor(totalSeconds / 60);
         const seconds = totalSeconds % 60;
 
@@ -100,7 +89,7 @@ export default function MonitoringUI() {
             hmsParts.push(`${seconds}s`);
         }
 
-        return hmsParts.join(' '); // Join parts with a space
+        return hmsParts.join(' ');
     }
 
     return (

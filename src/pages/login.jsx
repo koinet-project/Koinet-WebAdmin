@@ -1,4 +1,4 @@
-import { Button, Card, Container, Divider, FormControl, Input, InputAdornment, InputLabel, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Button, Card, Container, Divider, FormControl, Input, InputAdornment, InputLabel, Snackbar, Stack, TextField, Typography } from "@mui/material";
 import { child, get, ref } from "firebase/database";
 import { useEffect, useState } from "react";
 import { db } from "../main";
@@ -10,12 +10,15 @@ export default function LoginUI() {
     var [username, setUserName] = useState("");
     var [password, setPassword] = useState("");
 
+    const [openErrorAlert, setOpenErrorAlert] = useState(false);
+
     const navigate = useNavigate();
 
     function tryLogin() {
         const dbRef = ref(db);
         get(child(dbRef, 'admin')).then((snapshot) => {
             var adminDb = null;
+            let loggedIn = false;
 
             if (snapshot.exists()) {
                 adminDb = snapshot.val()
@@ -29,10 +32,31 @@ export default function LoginUI() {
                             localStorage.setItem("authPassword", password)
                         localStorage.setItem("authKeyframe", Date.now())
                         navigate('/admin')
+                        loggedIn = true;
+                        break;
                     }
                 }
             }
-        })
+            if (!loggedIn) {
+                setOpenErrorAlert(true);
+            }
+        }).catch((error) => {
+            console.error("Error fetching admin data:", error);
+            setOpenErrorAlert(true);
+        }) 
+    }
+
+    const handleCloseErrorAlert = (event, reason) => {
+        if (reason === 'clickway') {
+            return;
+        }
+        setOpenErrorAlert(false);
+    };
+
+    const handlePressKey = (event) => {
+        if (event.key === 'Enter') {
+            tryLogin();
+        }
     }
 
     return (
@@ -55,6 +79,7 @@ export default function LoginUI() {
                             onChange={(event) => {
                                 setUserName(event.target.value);
                             }}
+                            onKeyDown={handlePressKey}
                             slotProps={{
                                 input: {
                                     startAdornment: (
@@ -74,6 +99,7 @@ export default function LoginUI() {
                             onChange={(event) => {
                                 setPassword(event.target.value);
                             }}
+                            onKeyDown={handlePressKey}
                             slotProps={{
                                 input: {
                                     startAdornment: (
@@ -96,6 +122,13 @@ export default function LoginUI() {
                     <Button variant="contained" onClick={tryLogin}>Login</Button>
                 </Stack>
             </Card>
+
+            {/* Snackbar for error message */}
+            <Snackbar open={openErrorAlert} autoHideDuration={6000} onClose={handleCloseErrorAlert}>
+                <Alert onClose={handleCloseErrorAlert} severity="error" sx={{ width: '100%' }}>
+                    Username dan password salah
+                </Alert>
+            </Snackbar>
         </div>
     )
 }

@@ -34,7 +34,6 @@ export default function CoinGauge() {
 
         const coinDataRef = ref(db, "monitoring/coin_input");
 
-        // For yesterday coin, no need to update anything
         get(child(coinDataRef, `${yesterdayISO}`)).then((snapshot) => {
             if (snapshot.exists()) {
                 const data = snapshot.val();
